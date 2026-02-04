@@ -162,3 +162,57 @@ Authorization: Bearer <ACCESS_TOKEN>
   "message": "user deleted successfully"
 }
 ```
+
+### Testing Examples
+
+#### Using curl
+
+```bash
+# Create user
+curl -X POST http://127.0.0.1:8000/user/create \
+  -H "Content-Type: application/json" \
+  -d '{"username":"javad","password":"1234"}'
+
+# Login
+curl -X POST http://127.0.0.1:8000/user/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"javad","password":"1234"}'
+
+# Get current user
+curl -X GET http://127.0.0.1:8000/user/me \
+  -H "Authorization: Bearer <JWT_TOKEN>"
+
+# Update user
+curl -X PATCH http://127.0.0.1:8000/user/update \
+  -H "Authorization: Bearer <JWT_TOKEN>" \
+  -H "Content-Type: application/json" \
+  -d '{"username":"ali","password":"newpass"}'
+
+# Delete user
+curl -X DELETE http://127.0.0.1:8000/user/delete \
+  -H "Authorization: Bearer <JWT_TOKEN>"
+```
+
+#### Using Python requests
+
+```python
+import requests
+
+BASE_URL = "http://127.0.0.1:8000"
+
+# Login
+res = requests.post(f"{BASE_URL}/user/login", json={"username":"javad","password":"1234"})
+token = res.json()["data"]["access_token"]
+
+# Get current user
+res = requests.get(f"{BASE_URL}/user/me", headers={"Authorization": f"Bearer {token}"})
+print(res.json())
+
+# Update user
+res = requests.patch(f"{BASE_URL}/user/update", json={"username":"ali"}, headers={"Authorization": f"Bearer {token}"})
+print(res.json())
+
+# Delete user
+res = requests.delete(f"{BASE_URL}/user/delete", headers={"Authorization": f"Bearer {token}"})
+print(res.json())
+```
