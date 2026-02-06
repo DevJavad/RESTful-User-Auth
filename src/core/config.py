@@ -2,9 +2,10 @@ from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
+    ALGORITHM: str
     SECRET_KEY: str
-    ACCESS_TOKEN_EXPIRE_MINUTES: int
     DATABASE_URL: str
+    ACCESS_TOKEN_EXPIRE_MINUTES: int
 
     class Config:
         env_file = ".env"
