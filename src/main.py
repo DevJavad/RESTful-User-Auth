@@ -1,5 +1,5 @@
 import uvicorn
-from router import router
+from router import user_router
 from fastapi import FastAPI
 from core.config import settings
 from db import connect, disconnect
@@ -15,7 +15,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
-app.include_router(router)
+app.include_router(user_router)
 
 if __name__ == "__main__":
     uvicorn.run("main:app", reload=True)
