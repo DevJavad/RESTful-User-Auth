@@ -1,80 +1,130 @@
-import schema
+from enums import Role
 from models import User
-from fastapi import APIRouter, Depends
-from utils import create_response, hash_password, verify_password, create_access_token, get_current_user
+from crud.user import is_exists
+from utils.response import success
+from schema.user import UserCreate, UserUpdate, UserOut
+from fastapi import APIRouter, HTTPException, status, Depends
+from core.security import hash_password, verify_password, create_access_token
+from core.dependencies import get_current_user, admin_required, owner_required
 
 
 router = APIRouter(prefix="/user", tags=["User"])
 
 
-@router.post("/create")
-async def create_user(data: schema.user.User):
-    username, password = data.username.lower(), data.password
+@router.post("/register", response_model=UserOut)
+async def register_user(data: UserCreate):
+    username, email, password = data.username.lower(), data.email.lower(), data.password
+    _username, _email = await is_exists(username, email)
 
-    if await User.get_or_none(username=username):
-        return create_response(
-            "error", "username already exists", 409,
-            error="EXISTS_USERNAME"
-        )
+    if (_username and _email):
+        raise HTTPException(status.HTTP_409_CONFLICT, "EXISTS_VALUES")
+    elif _username:
+        raise HTTPException(status.HTTP_409_CONFLICT, "EXISTS_USERNAME")
+    elif _email:
+        raise HTTPException(status.HTTP_409_CONFLICT, "EXISTS_EMAIL")
 
-    user = await User.create(
-        username=username,
-        password=hash_password(password)
-    )
+    _hash = hash_password(password)
+    user = await User.create(username=username, email=email, password=_hash)
 
-    return create_response(
-        "success", "Created a new user", 201,
-        data={"user_id": user.id}
-    )
+    return success("REGISTERE_SUCCESS", UserOut.model_validate(user).model_dump(), 201)
 
 
 @router.post("/login")
-async def login_user(data: schema.user.User):
+async def login_user(data: UserCreate):
     username, password = data.username.lower(), data.password
 
     user = await User.get_or_none(username=username)
 
     if not user:
-        return create_response("error", "username not exists", 401, error="INVALID_USERNAME")
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "INVALID_USERNAME")
 
     if not verify_password(password, user.password):
-        return create_response("error", "password not correct", 401, error="INVALID_PASSWORD")
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "INVALID_PASSWORD")
 
-    return create_response(
-        "success", "login successful",
-        data={
-            "access_token": create_access_token({"sub": str(user.id)}),
-            "token_type": "bearer"
+    token = create_access_token({"sub": str(user.id)})
+
+    return success(
+        "LOGIN_SUCCESS",
+        {
+            "access_token": token,
+            "token_type": "bearer",
+            "user": UserOut.model_validate(user).model_dump()
         }
     )
 
 
-@router.get("/me")
-async def get_me(current_user: User = Depends(get_current_user)):
-    return create_response(
-        "success",
-        "current user info",
-        data={"id": current_user.id, "username": current_user.username}
-    )
+@router.get("/me", response_model=UserOut)
+async def get_me(user: User = Depends(get_current_user)):
+    return success("USER_DATA", UserOut.model_validate(user).model_dump())
 
 
-@router.patch("/update")
-async def update_user(data: schema.user.User, current_user: User = Depends(get_current_user)):
-    update_data = {}
-    username, password = data.username.lower(), data.password
+@router.put("/update", response_model=UserOut)
+async def update_user(data: UserUpdate, user: User = Depends(get_current_user)):
+    username, email, password = data.username, data.email, data.password
+    username = username.lower() if username else None
+    email = email.lower() if email else None
+
+    _username, _email = await is_exists(username, email)
+
+    if _username and username != user.username:
+        raise HTTPException(status.HTTP_409_CONFLICT, "EXISTS_USERNAME")
+
+    if _email and email != user.email:
+        raise HTTPException(status.HTTP_409_CONFLICT, "EXISTS_EMAIL")
 
     if username:
-        update_data["username"] = username
+        user.username = username
+    if email:
+        user.email = email
     if password:
-        update_data["password"] = hash_password(password)
+        user.password = hash_password(password)
 
-    if update_data:
-        await User.filter(id=current_user.id).update(**update_data)
+    await user.save()
 
-    return create_response("success", "user updated successfully")
+    return success("UPDATE_USER", UserOut.model_validate(user).model_dump())
 
 
-@router.delete("/delete")
-async def delete_user(current_user: User = Depends(get_current_user)):
-    await User.filter(id=current_user.id).delete()
-    return create_response("success", "user deleted successfully")
+@router.delete("/{user_id}")
+async def delete_user(user_id: int, admin: User = Depends(admin_required)):
+    user = await User.get_or_none(id=user_id)
+
+    if not user:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "USER_NOT_FOUND")
+
+    await user.delete()
+
+    return success("DELETED_USER")
+
+
+@router.get("/list")
+async def users(admin: User = Depends(admin_required)):
+    users = await User.all()
+
+    return success("USERS", [UserOut.model_validate(user).model_dump() for user in users])
+
+
+@router.post("/{user_id}/promote")
+async def promote_user(user_id: int, owner: User = Depends(owner_required)):
+    user = await User.get_or_none(id=user_id)
+    if not user:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "USER_NOT_FOUND")
+
+    if user.role == Role.ADMIN:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "ALREADY_ADMIN")
+
+    user.role = Role.ADMIN
+    await user.save()
+
+    return success("PROMOTED_USER")
+
+
+@router.post("/{user_id}/demtoe")
+async def demote_user(user_id: int, owner: User = Depends(owner_required)):
+    user = await User.get_or_none(id=user_id)
+    if not user:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "USER_NOT_FOUND")
+
+    if user.role == Role.ADMIN:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "NOT_ADMIN")
+
+    return success("DEMOTED_USER")
